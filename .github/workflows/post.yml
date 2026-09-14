@@ -1,0 +1,80 @@
+name: GymMatch Instagram Auto Post
+
+on:
+  schedule:
+    # 10:00 UTC = 19:00 JST。水曜(3)・土曜(6)
+    - cron: "0 10 * * 3,6"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gymmatch-instagram-post
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure git identity
+        run: |
+          git config user.name "gymmatch-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Set initial token
+        run: echo "IG_ACCESS_TOKEN=${{ secrets.IG_ACCESS_TOKEN }}" >> "$GITHUB_ENV"
+
+      - name: Refresh Instagram token (optional, needs GH_PAT secret)
+        env:
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NEW_TOKEN_FILE: /tmp/new_ig_token.txt
+        run: |
+          python scripts/refresh_token.py
+          if [ -s /tmp/new_ig_token.txt ]; then
+            new_token=$(cat /tmp/new_ig_token.txt)
+            echo "::add-mask::$new_token"
+            echo "IG_ACCESS_TOKEN=$new_token" >> "$GITHUB_ENV"
+            rm -f /tmp/new_ig_token.txt
+          fi
+
+      - name: Generate post content and images
+        id: generate
+        run: |
+          output=$(python scripts/post_to_instagram.py generate)
+          echo "$output"
+          manifest=$(echo "$output" | grep '^MANIFEST=' | cut -d'=' -f2)
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+
+      - name: Commit generated images and state
+        run: |
+          git add generated/ state/state.json
+          git commit -m "chore: generate post ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
+          git pull --rebase
+          git push
+
+      - name: Publish to Instagram
+        env:
+          IG_USER_ID: ${{ secrets.IG_USER_ID }}
+          RAW_BASE_URL: https://raw.githubusercontent.com/${{ github.repository }}/${{ github.ref_name }}
+        run: |
+          python scripts/post_to_instagram.py publish "${{ steps.generate.outputs.manifest }}"
+
+      - name: Commit state after publish
+        run: |
+          git add state/state.json
+          git commit -m "chore: record published post ids" || echo "nothing to commit"
+          git pull --rebase
+          git push
