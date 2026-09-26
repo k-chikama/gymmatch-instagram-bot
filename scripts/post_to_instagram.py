@@ -3,22 +3,24 @@ GymMatch Instagram自動投稿スクリプト。
 
 想定実行環境: GitHub Actions（このスクリプト自身はネットワーク越しに
 Instagram Graph APIを呼び出すだけで、リポジトリへのcommit/pushはワークフロー
-(.github/workflows/post.yml) 側が行う）。
+側が行う）。フィード・ストーリー・リールはそれぞれ独立したワークフロー
+(.github/workflows/post_feed.yml, post_story.yml, post_reel.yml) から
+このスクリプトを呼び出す想定。
 
-流れ:
-  1. content/content.json と state/state.json から次に投稿する内容を選ぶ
-  2. フィード用(1080x1080)・ストーリー用(1080x1920)の画像を generated/ に書き出す
-     （ファイル名はユニークにして、GitHub Pagesやraw.githubusercontent.com
-       のキャッシュ衝突を避ける）
-  3. state/state.json のindexを進めて保存
-  4. （このスクリプトはファイルを書き出すところまで。git commit & push は
-      ワークフローのステップで行い、その後に --publish で本投稿を実行する
-      2段構成にしている）
+サブコマンド:
+  generate-feed   : フィード用画像を生成 (1080x1080)
+  generate-story  : ストーリー用画像を生成 (1080x1920)
+  generate-reel   : リール用動画を生成 (1080x1920, 約7秒)
+  publish <manifest_file> : generate-* が書き出したmanifestを元に投稿する
+
+いずれも「content/content.json の次のアイテムを1つ消費して使う」という
+共通のローテーションを使うので、フィード・ストーリー・リールがそれぞれ
+実行されるたびに順番が1つずつ進む。
 
 環境変数:
   IG_ACCESS_TOKEN : Instagramのアクセストークン（必須）
   IG_USER_ID      : InstagramのユーザーID（必須）
-  RAW_BASE_URL    : 生成画像に外部からアクセスするためのベースURL
+  RAW_BASE_URL    : 生成ファイルに外部からアクセスするためのベースURL
                     例: https://raw.githubusercontent.com/<owner>/<repo>/<branch>
                     （必須。publishステップでのみ使用）
 """
@@ -60,39 +62,58 @@ def pick_next_item():
     return item, idx
 
 
-def step_generate():
-    """画像を生成して generated/ に保存し、生成したファイル名を stdout に出す
-    （ワークフロー側でファイル名をキャプチャしてcommitし、publishステップに渡す）。"""
+def build_caption(item, with_hashtags=True):
+    base = f"{item['headline'].replace(chr(10), ' ')}\n\n{item['body']}"
+    if not with_hashtags:
+        return base
+    hashtags = "\n\n#GymMatch #ジム友 #トレーニング仲間 #筋トレ女子 #筋トレ初心者 #ジム活 #筋トレアプリ"
+    return base + hashtags
+
+
+def _write_manifest(kind, idx, item, **fields):
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+    uid = uuid.uuid4().hex[:10]
+    manifest = {"kind": kind, "index": idx, "type": item["type"], **fields}
+    manifest_path = os.path.join(GENERATED_DIR, f"manifest_{kind}_{uid}.json")
+    save_json(manifest_path, manifest)
+    print(f"MANIFEST={os.path.basename(manifest_path)}")
+    return manifest_path
+
+
+def step_generate_feed():
     sys.path.insert(0, HERE)
-    from generate_image import make_feed_image, make_story_image
+    from generate_image import make_feed_image
 
     item, idx = pick_next_item()
     os.makedirs(GENERATED_DIR, exist_ok=True)
     uid = uuid.uuid4().hex[:10]
     feed_name = f"feed_{uid}.png"
-    story_name = f"story_{uid}.png"
     make_feed_image(item, os.path.join(GENERATED_DIR, feed_name))
+    _write_manifest("feed", idx, item, feed_file=feed_name, caption=build_caption(item))
+
+
+def step_generate_story():
+    sys.path.insert(0, HERE)
+    from generate_image import make_story_image
+
+    item, idx = pick_next_item()
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+    uid = uuid.uuid4().hex[:10]
+    story_name = f"story_{uid}.png"
     make_story_image(item, os.path.join(GENERATED_DIR, story_name))
-
-    caption = build_caption(item)
-
-    manifest = {
-        "index": idx,
-        "type": item["type"],
-        "feed_file": feed_name,
-        "story_file": story_name,
-        "caption": caption,
-    }
-    manifest_path = os.path.join(GENERATED_DIR, f"manifest_{uid}.json")
-    save_json(manifest_path, manifest)
-    # GitHub Actions の後続ステップに渡すため、ファイル名をそのまま出力する
-    print(f"MANIFEST={os.path.basename(manifest_path)}")
+    _write_manifest("story", idx, item, story_file=story_name)
 
 
-def build_caption(item):
-    base = f"{item['headline'].replace(chr(10), ' ')}\n\n{item['body']}"
-    hashtags = "\n\n#GymMatch #ジム友 #トレーニング仲間 #筋トレ女子 #筋トレ初心者 #ジム活 #筋トレアプリ"
-    return base + hashtags
+def step_generate_reel():
+    sys.path.insert(0, HERE)
+    from generate_video import make_reel_video
+
+    item, idx = pick_next_item()
+    os.makedirs(GENERATED_DIR, exist_ok=True)
+    uid = uuid.uuid4().hex[:10]
+    reel_name = f"reel_{uid}.mp4"
+    make_reel_video(item, os.path.join(GENERATED_DIR, reel_name))
+    _write_manifest("reel", idx, item, reel_file=reel_name, caption=build_caption(item))
 
 
 def wait_for_public(url, attempts=8, delay=5):
@@ -107,12 +128,20 @@ def wait_for_public(url, attempts=8, delay=5):
     return False
 
 
-def create_and_publish(image_url, ig_user_id, token, caption=None, media_type=None, max_retries=3):
-    params = {"image_url": image_url, "access_token": token}
+def create_and_publish(ig_user_id, token, media_url, media_kind, caption=None, max_retries=3,
+                        status_attempts=12, status_delay=5):
+    """media_kind: 'image' (feed) | 'story' | 'reel'"""
+    params = {"access_token": token}
+    if media_kind == "reel":
+        params["media_type"] = "REELS"
+        params["video_url"] = media_url
+    elif media_kind == "story":
+        params["media_type"] = "STORIES"
+        params["image_url"] = media_url
+    else:
+        params["image_url"] = media_url
     if caption:
         params["caption"] = caption
-    if media_type:
-        params["media_type"] = media_type
 
     last_err = None
     for attempt in range(max_retries):
@@ -125,8 +154,8 @@ def create_and_publish(image_url, ig_user_id, token, caption=None, media_type=No
     else:
         raise RuntimeError(f"container creation failed after retries: {last_err}")
 
-    # コンテナのステータスが FINISHED になるまで待つ
-    for _ in range(12):
+    # コンテナのステータスが FINISHED になるまで待つ（動画は処理に時間がかかる）
+    for _ in range(status_attempts):
         status_r = requests.get(
             f"{GRAPH_BASE}/{container_id}",
             params={"fields": "status_code", "access_token": token},
@@ -137,7 +166,9 @@ def create_and_publish(image_url, ig_user_id, token, caption=None, media_type=No
             break
         if status == "ERROR":
             raise RuntimeError(f"container {container_id} errored: {status_r.text}")
-        time.sleep(5)
+        time.sleep(status_delay)
+    else:
+        raise RuntimeError(f"container {container_id} did not finish processing in time")
 
     pub_r = requests.post(
         f"{GRAPH_BASE}/{ig_user_id}/media_publish",
@@ -149,41 +180,67 @@ def create_and_publish(image_url, ig_user_id, token, caption=None, media_type=No
     return pub_r.json()["id"]
 
 
+def _update_state(**fields):
+    state = load_json(STATE_PATH)
+    state["last_posted_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    state.update(fields)
+    save_json(STATE_PATH, state)
+
+
 def step_publish(manifest_file):
     token = os.environ["IG_ACCESS_TOKEN"]
     ig_user_id = os.environ["IG_USER_ID"]
     raw_base = os.environ["RAW_BASE_URL"].rstrip("/")
 
     manifest = load_json(os.path.join(GENERATED_DIR, manifest_file))
-    feed_url = f"{raw_base}/generated/{manifest['feed_file']}"
-    story_url = f"{raw_base}/generated/{manifest['story_file']}"
+    kind = manifest["kind"]
 
-    print(f"waiting for public availability of {feed_url}")
-    if not wait_for_public(feed_url):
-        print("WARNING: feed image not confirmed public yet, trying anyway")
+    if kind == "feed":
+        url = f"{raw_base}/generated/{manifest['feed_file']}"
+        print(f"waiting for public availability of {url}")
+        if not wait_for_public(url):
+            print("WARNING: feed image not confirmed public yet, trying anyway")
+        post_id = create_and_publish(ig_user_id, token, url, "image", caption=manifest.get("caption"))
+        print(f"feed post published: {post_id}")
+        _update_state(last_feed_post_id=post_id)
 
-    print("publishing feed post...")
-    feed_id = create_and_publish(feed_url, ig_user_id, token, caption=manifest["caption"])
-    print(f"feed post published: {feed_id}")
+    elif kind == "story":
+        url = f"{raw_base}/generated/{manifest['story_file']}"
+        print(f"waiting for public availability of {url}")
+        if not wait_for_public(url):
+            print("WARNING: story image not confirmed public yet, trying anyway")
+        post_id = create_and_publish(ig_user_id, token, url, "story")
+        print(f"story published: {post_id}")
+        _update_state(last_story_post_id=post_id)
 
-    print("publishing story...")
-    story_id = create_and_publish(story_url, ig_user_id, token, media_type="STORIES")
-    print(f"story published: {story_id}")
+    elif kind == "reel":
+        url = f"{raw_base}/generated/{manifest['reel_file']}"
+        print(f"waiting for public availability of {url}")
+        if not wait_for_public(url, attempts=12, delay=5):
+            print("WARNING: reel video not confirmed public yet, trying anyway")
+        # 動画はコンテナ処理に時間がかかるため、長めにポーリングする
+        post_id = create_and_publish(
+            ig_user_id, token, url, "reel", caption=manifest.get("caption"),
+            status_attempts=36, status_delay=10,
+        )
+        print(f"reel published: {post_id}")
+        _update_state(last_reel_post_id=post_id)
 
-    state = load_json(STATE_PATH)
-    state["last_posted_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    state["last_feed_post_id"] = feed_id
-    state["last_story_post_id"] = story_id
-    save_json(STATE_PATH, state)
+    else:
+        raise ValueError(f"unknown manifest kind: {kind}")
 
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("usage: post_to_instagram.py generate|publish <manifest_file>")
+        print("usage: post_to_instagram.py generate-feed|generate-story|generate-reel|publish <manifest_file>")
         sys.exit(1)
     cmd = sys.argv[1]
-    if cmd == "generate":
-        step_generate()
+    if cmd == "generate-feed":
+        step_generate_feed()
+    elif cmd == "generate-story":
+        step_generate_story()
+    elif cmd == "generate-reel":
+        step_generate_reel()
     elif cmd == "publish":
         step_publish(sys.argv[2])
     else:
