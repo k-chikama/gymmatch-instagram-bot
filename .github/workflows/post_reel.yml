@@ -1,9 +1,9 @@
-name: GymMatch Instagram Feed Post
+name: GymMatch Instagram Reel Post
 
 on:
   schedule:
-    # 10:00 UTC = 19:00 JST。水曜(3)・土曜(6)
-    - cron: "0 10 * * 3,6"
+    # 3:00 UTC = 12:00 JST。毎週日曜
+    - cron: "0 3 * * 0"
   workflow_dispatch: {}
 
 permissions:
@@ -24,6 +24,9 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
 
       - name: Install dependencies
         run: pip install -r requirements.txt
@@ -55,18 +58,18 @@ jobs:
             rm -f /tmp/new_ig_token.txt
           fi
 
-      - name: Generate feed post image
+      - name: Generate reel video
         id: generate
         run: |
-          output=$(python scripts/post_to_instagram.py generate-feed)
+          output=$(python scripts/post_to_instagram.py generate-reel)
           echo "$output"
           manifest=$(echo "$output" | grep '^MANIFEST=' | cut -d'=' -f2)
           echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
 
-      - name: Commit generated image and state
+      - name: Commit generated video and state
         run: |
           git add generated/ state/state.json
-          git commit -m "chore: generate feed post ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
+          git commit -m "chore: generate reel ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
           git pull --rebase
           git push
 
@@ -80,6 +83,6 @@ jobs:
       - name: Commit state after publish
         run: |
           git add state/state.json
-          git commit -m "chore: record published feed post id" || echo "nothing to commit"
+          git commit -m "chore: record published reel id" || echo "nothing to commit"
           git pull --rebase
           git push

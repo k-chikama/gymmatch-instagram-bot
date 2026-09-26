@@ -1,9 +1,9 @@
-name: GymMatch Instagram Feed Post
+name: GymMatch Instagram Story Post
 
 on:
   schedule:
-    # 10:00 UTC = 19:00 JST。水曜(3)・土曜(6)
-    - cron: "0 10 * * 3,6"
+    # 23:00 UTC = 翌8:00 JST。毎日
+    - cron: "0 23 * * *"
   workflow_dispatch: {}
 
 permissions:
@@ -55,10 +55,10 @@ jobs:
             rm -f /tmp/new_ig_token.txt
           fi
 
-      - name: Generate feed post image
+      - name: Generate story image
         id: generate
         run: |
-          output=$(python scripts/post_to_instagram.py generate-feed)
+          output=$(python scripts/post_to_instagram.py generate-story)
           echo "$output"
           manifest=$(echo "$output" | grep '^MANIFEST=' | cut -d'=' -f2)
           echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
@@ -66,7 +66,7 @@ jobs:
       - name: Commit generated image and state
         run: |
           git add generated/ state/state.json
-          git commit -m "chore: generate feed post ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
+          git commit -m "chore: generate story ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
           git pull --rebase
           git push
 
@@ -80,6 +80,6 @@ jobs:
       - name: Commit state after publish
         run: |
           git add state/state.json
-          git commit -m "chore: record published feed post id" || echo "nothing to commit"
+          git commit -m "chore: record published story id" || echo "nothing to commit"
           git pull --rebase
           git push
