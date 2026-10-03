@@ -70,8 +70,11 @@ jobs:
         run: |
           git add generated/ state/state.json
           git commit -m "chore: generate reel ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
-          git pull --rebase
-          git push
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X ours && git push && break
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((RANDOM % 5 + 1))
+          done
 
       - name: Publish to Instagram
         env:
@@ -84,5 +87,8 @@ jobs:
         run: |
           git add state/state.json
           git commit -m "chore: record published reel id" || echo "nothing to commit"
-          git pull --rebase
-          git push
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X ours && git push && break
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((RANDOM % 5 + 1))
+          done
