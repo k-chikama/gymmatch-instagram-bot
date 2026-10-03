@@ -89,16 +89,21 @@ if __name__ == "__main__":
               "Remember to manually refresh IG_ACCESS_TOKEN before it expires (~60 days).")
         sys.exit(0)
 
+    # NOTE: everything below is wrapped in one try/except. This whole script is a
+    # best-effort side task — ANY failure here (network hiccup, GitHub API error,
+    # bad GH_PAT, etc.) must never crash the job and block the actual Instagram
+    # post. A previous version let update_github_secret() raise uncaught, which
+    # silently killed the entire workflow run (including the real publish step)
+    # once the refresh call started actually succeeding.
     try:
         new_token, expires_in = refresh_ig_token(token)
+        owner, repo = repo_full.split("/")
+        ok = update_github_secret(owner, repo, gh_pat, "IG_ACCESS_TOKEN", new_token)
+        if ok:
+            with open(new_token_file, "w") as f:
+                f.write(new_token)
+            days = (expires_in or 0) / 86400
+            print(f"Token refreshed and GitHub secret updated. New token valid for ~{days:.0f} days.")
     except Exception as e:
-        print(f"Token refresh failed (continuing with existing token): {e}")
+        print(f"Token refresh/update failed (continuing with existing token): {e}")
         sys.exit(0)
-
-    owner, repo = repo_full.split("/")
-    ok = update_github_secret(owner, repo, gh_pat, "IG_ACCESS_TOKEN", new_token)
-    if ok:
-        with open(new_token_file, "w") as f:
-            f.write(new_token)
-        days = (expires_in or 0) / 86400
-        print(f"Token refreshed and GitHub secret updated. New token valid for ~{days:.0f} days.")
