@@ -5,7 +5,7 @@
     { "type": "motivation", "headline": "一人だと三日坊主\n二人なら続く", "body": "同じ目標を持つ仲間がいるだけで、ジムに行く理由が増える。", "tag": "モチベーション" },
     { "type": "tip", "headline": "目的で絞り込み\n検索してみよう", "body": "筋トレ・ダイエット・競技練習など、目的が近い人が見つかります。", "tag": "使い方Tips" },
     { "type": "motivation", "headline": "今日のキツい一本が\n明日の自信になる", "body": "その一歩を、一緒に頑張れる人と。", "tag": "モチベーション" },
-    { "type": "update", "headline": "GymMatch\niOSで配信中", "body": "ジムトレ仲間探しアプリ、GymMatch。App Storeから無料でダウンロードできます。", "tag": "お知らせ" },
+    { "type": "update", "headline": "GymMatch\niOS/Androidで配信中", "body": "ジムトレ仲間探しアプリ、GymMatch。App Store・Google Playから無料でダウンロードできます。", "tag": "お知らせ" },
     { "type": "tip", "headline": "初回メッセージは\n具体的に", "body": "「一緒に〇曜日の夜トレしませんか？」など、誘いやすい一言を添えてみましょう。", "tag": "使い方Tips" },
     { "type": "motivation", "headline": "モチベーションは\n環境が9割", "body": "頑張っている人の近くにいると、自然と自分も頑張れる。", "tag": "モチベーション" },
     { "type": "tip", "headline": "ジムの雰囲気は\n写真で伝わる", "body": "設備や好きなトレーニング風景の写真があると、相手も安心して声をかけやすくなります。", "tag": "使い方Tips" },
@@ -16,7 +16,7 @@
     { "type": "motivation", "headline": "続かない理由の多くは\n一人だから", "body": "GymMatchでトレ友を見つけて、続く仕組みを作ろう。", "tag": "モチベーション" },
     { "type": "tip", "headline": "無理な誘いより\nまずは挨拶から", "body": "気になる相手にはまず「はじめまして」の一言から。焦らずやりとりを重ねましょう。", "tag": "使い方Tips" },
     { "type": "motivation", "headline": "限界を決めるのは\nいつも自分", "body": "その限界、誰かと一緒に超えてみませんか。", "tag": "モチベーション" },
-    { "type": "update", "headline": "Android版も\n近日公開予定", "body": "現在テスト中です。公開までもうしばらくお待ちください。", "tag": "お知らせ" },
+    { "type": "update", "headline": "Android版も\n配信開始しました", "body": "お待たせしました。GymMatchがGoogle Playでもご利用いただけるようになりました。", "tag": "お知らせ" },
     { "type": "tip", "headline": "種目タグで\n相性チェック", "body": "ベンチプレス・ランニングなど得意種目を登録すると、話が弾む相手と出会えます。", "tag": "使い方Tips" },
     { "type": "motivation", "headline": "小さな積み重ねが\n大きな自信になる", "body": "今日も一歩、誰かと一緒に。", "tag": "モチベーション" }
   ]
