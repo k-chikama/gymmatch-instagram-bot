@@ -1,0 +1,84 @@
+name: GymMatch X Post
+
+on:
+  schedule:
+    # 0:00 UTC = 9:00 JST。毎日
+    - cron: "0 0 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gymmatch-x-repo-write
+  cancel-in-progress: false
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Configure git identity
+        run: |
+          git config user.name "gymmatch-bot"
+          git config user.email "actions@users.noreply.github.com"
+
+      - name: Refresh X token (required; X access tokens are short-lived)
+        env:
+          X_CLIENT_ID: ${{ secrets.X_CLIENT_ID }}
+          X_CLIENT_SECRET: ${{ secrets.X_CLIENT_SECRET }}
+          X_REFRESH_TOKEN: ${{ secrets.X_REFRESH_TOKEN }}
+          GH_PAT: ${{ secrets.GH_PAT }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          NEW_X_ACCESS_TOKEN_FILE: /tmp/new_x_access_token.txt
+          NEW_X_REFRESH_TOKEN_FILE: /tmp/new_x_refresh_token.txt
+        run: |
+          python scripts/refresh_token_x.py
+          access_token=$(cat /tmp/new_x_access_token.txt)
+          echo "::add-mask::$access_token"
+          echo "X_ACCESS_TOKEN<<EOF_TOKEN" >> "$GITHUB_ENV"
+          echo "$access_token" >> "$GITHUB_ENV"
+          echo "EOF_TOKEN" >> "$GITHUB_ENV"
+          rm -f /tmp/new_x_access_token.txt /tmp/new_x_refresh_token.txt
+
+      - name: Generate X post image
+        id: generate
+        run: |
+          output=$(python scripts/post_to_x.py generate)
+          echo "$output"
+          manifest=$(echo "$output" | grep '^MANIFEST=' | cut -d'=' -f2)
+          echo "manifest=$manifest" >> "$GITHUB_OUTPUT"
+
+      - name: Commit generated image and state
+        run: |
+          git add generated/ state/state.json
+          git commit -m "chore: generate x post ${{ steps.generate.outputs.manifest }}" || echo "nothing to commit"
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X ours && git push && break
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((RANDOM % 5 + 1))
+          done
+
+      - name: Publish to X
+        run: |
+          python scripts/post_to_x.py publish "${{ steps.generate.outputs.manifest }}"
+
+      - name: Commit state after publish
+        run: |
+          git add state/state.json
+          git commit -m "chore: record published x post id" || echo "nothing to commit"
+          for i in 1 2 3 4 5; do
+            git pull --rebase -X ours && git push && break
+            git rebase --abort >/dev/null 2>&1 || true
+            sleep $((RANDOM % 5 + 1))
+          done
