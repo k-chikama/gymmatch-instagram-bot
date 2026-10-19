@@ -6,19 +6,28 @@ GymMatch X（旧Twitter）自動投稿スクリプト。
   2. publish  : 画像をアップロードし、本文とともにポストを作成
 
 X API v2は従量課金制。POST /2/tweets はURLなしのテキスト投稿で約$0.015/件。
-画像を使うため、先に POST /2/media/upload で画像をアップロードして media_id を
-取得し、ポスト作成時に添付する。
 
-認証はOAuth 2.0（Authorization Code + PKCE で developer console から直接
-発行した本人アカウント用のアクセストークン/リフレッシュトークン）。
-アクセストークンの有効期限は短い（数時間程度）ため、このスクリプトを実行する
-ワークフローは毎回 scripts/refresh_token_x.py で事前にリフレッシュする前提。
+画像アップロードだけは例外的にOAuth 1.0a（Consumer Key/Secret +
+Access Token/Secret）を使う。OAuth 2.0のユーザートークンには
+`media.write`スコープが付与できない（console.x.comのトークン発行画面に
+その選択肢が無い）ため、新しい v2 の /2/media/upload をOAuth 2.0
+Bearerトークンで呼ぶと403 Forbiddenになる。昔からある
+upload.twitter.com/1.1/media/upload.json をOAuth 1.0aで呼ぶのが
+確実なため、画像アップロードだけこちらを使う。
+
+ツイート本文の投稿（POST /2/tweets）自体はOAuth 2.0のアクセストークンを
+使う（これは正常に動作する）。認証はOAuth 2.0（Authorization Code +
+PKCE で developer console から直接発行した本人アカウント用のアクセス
+トークン/リフレッシュトークン）。アクセストークンの有効期限は短い
+（数時間程度）ため、このスクリプトを実行するワークフローは毎回
+scripts/refresh_token_x.py で事前にリフレッシュする前提。
 """
 import os
 import sys
 import time
 
 import requests
+from requests_oauthlib import OAuth1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
@@ -78,21 +87,25 @@ def step_generate():
     print(f"MANIFEST={os.path.basename(manifest_path)}")
 
 
-def upload_media(token, image_path):
+def upload_media(image_path):
+    """OAuth 1.0a経由で画像をアップロードする（理由は冒頭のコメント参照）。"""
+    auth = OAuth1(
+        os.environ["X_CONSUMER_KEY"],
+        os.environ["X_CONSUMER_SECRET"],
+        os.environ["X_OAUTH1_ACCESS_TOKEN"],
+        os.environ["X_OAUTH1_ACCESS_TOKEN_SECRET"],
+    )
     with open(image_path, "rb") as f:
         files = {"media": (os.path.basename(image_path), f, "image/png")}
         r = requests.post(
-            f"{API_BASE}/media/upload",
-            headers={"Authorization": f"Bearer {token}"},
+            "https://upload.twitter.com/1.1/media/upload.json",
+            auth=auth,
             files=files,
-            data={"media_category": "tweet_image"},
             timeout=60,
         )
     if r.status_code >= 300:
         raise RuntimeError(f"media upload failed: {r.status_code} {r.text}")
     data = r.json()
-    if "data" in data and "id" in data["data"]:
-        return data["data"]["id"]
     if "media_id_string" in data:
         return data["media_id_string"]
     raise RuntimeError(f"unexpected media upload response: {data}")
@@ -116,7 +129,7 @@ def step_publish(manifest_file):
     manifest = load_json(manifest_path)
     image_path = os.path.join(GENERATED_DIR, manifest["image_file"])
 
-    media_id = upload_media(token, image_path)
+    media_id = upload_media(image_path)
     result = create_post(token, manifest["text"], media_id)
     post_id = result.get("data", {}).get("id")
 
